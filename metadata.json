@@ -1,0 +1,5 @@
+{
+  "name": "Batch Image Generator",
+  "description": "A Nano Banana-Powered AI Image Generation web app. Note: This uses the free google account tier for image generation.",
+  "requestFramePermissions": []
+}

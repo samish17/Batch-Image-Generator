@@ -181,7 +181,7 @@ export function UploadSection() {
         </button>
         <button
           onClick={handleGenerate}
-          disabled={isGenerating || referenceImages.length === 0}
+          disabled={isGenerating || referenceImages.length === 0 || generatedImages.length === 0}
           className="flex items-center gap-2 px-6 py-3 bg-yellow-400 hover:bg-yellow-500 text-zinc-900 font-semibold rounded-xl shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
         >
           {isGenerating ? (

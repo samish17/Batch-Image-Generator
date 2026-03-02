@@ -26,6 +26,7 @@ interface AppState {
   updateReferencePrompt: (id: string, prompt: string) => void;
   setGeneratedImages: (images: GeneratedImage[]) => void;
   updateGeneratedImage: (id: string, updates: Partial<GeneratedImage>) => void;
+  removeGeneratedImage: (id: string) => void;
   setIsGenerating: (isGenerating: boolean) => void;
   batchIdentifier: string;
   setBatchIdentifier: (id: string) => void;
@@ -78,6 +79,10 @@ export const useStore = create<AppState>((set) => ({
       generatedImages: state.generatedImages.map((img) =>
         img.id === id ? { ...img, ...updates } : img
       ),
+    })),
+  removeGeneratedImage: (id) =>
+    set((state) => ({
+      generatedImages: state.generatedImages.filter((img) => img.id !== id),
     })),
   setIsGenerating: (isGenerating) => set({ isGenerating }),
   toggleTheme: () =>

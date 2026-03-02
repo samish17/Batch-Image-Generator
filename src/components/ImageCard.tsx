@@ -1,5 +1,5 @@
 import { useStore, GeneratedImage } from '../store/useStore';
-import { Download, RefreshCw, AlertCircle } from 'lucide-react';
+import { Download, RefreshCw, AlertCircle, X } from 'lucide-react';
 import type { MouseEvent } from 'react';
 import { saveAs } from 'file-saver';
 import { toast } from 'sonner';
@@ -13,7 +13,7 @@ interface ImageCardProps {
 }
 
 export function ImageCard({ image, index, onClick }: ImageCardProps) {
-  const { isGenerating, referenceImages, updateGeneratedImage, batchIdentifier } = useStore();
+  const { isGenerating, referenceImages, updateGeneratedImage, batchIdentifier, removeGeneratedImage } = useStore();
 
   const handleDownload = async (e: MouseEvent) => {
     e.stopPropagation();
@@ -45,6 +45,19 @@ export function ImageCard({ image, index, onClick }: ImageCardProps) {
       onClick={onClick}
     >
       <div className="relative aspect-[3/4] bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center overflow-hidden">
+        {!isGenerating && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              removeGeneratedImage(image.id);
+            }}
+            className="absolute top-3 right-3 p-1.5 bg-black/40 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all z-20"
+            title="Remove this slot"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+
         {image.status === 'idle' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-zinc-50 dark:bg-zinc-900/50">
             <div className="w-12 h-12 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center mb-3">

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { ImageCard } from './ImageCard';
 import { Lightbox } from './Lightbox';
@@ -8,6 +8,7 @@ import { saveAs } from 'file-saver';
 import { toast } from 'sonner';
 import { regenerateAllImages, extractPromptsFromFile } from '../services/geminiService';
 import { motion, AnimatePresence } from 'framer-motion';
+import { showDesktopNotification, requestNotificationPermission } from '../lib/utils';
 
 export function Gallery() {
   const { generatedImages, isGenerating, referenceImages, updateGeneratedImage, batchIdentifier, setBatchIdentifier, addEmptyGeneratedImages, setGeneratedImages } = useStore();
@@ -19,6 +20,7 @@ export function Gallery() {
   const hasStartedGeneration = generatedImages.some((img) => img.status !== 'idle');
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    requestNotificationPermission();
     const file = e.target.files?.[0];
     if (!file) return;
     
@@ -51,6 +53,7 @@ export function Gallery() {
       setGeneratedImages(updatedImages);
       
       toast.success(`Successfully extracted ${Math.min(prompts.length, 20)} prompts!`);
+      showDesktopNotification('Extraction Complete', `Successfully extracted ${Math.min(prompts.length, 20)} prompts from your file.`);
     } catch (error) {
       console.error(error);
       toast.error('Failed to extract prompts from file.');
@@ -69,9 +72,11 @@ export function Gallery() {
 
     const zip = new JSZip();
     const prefix = batchIdentifier ? `${batchIdentifier}_` : '';
-    successfulImages.forEach((img, index) => {
-      const base64Data = img.url.split(',')[1];
-      zip.file(`${prefix}${index + 1}.png`, base64Data, { base64: true });
+    generatedImages.forEach((img, index) => {
+      if (img.status === 'success') {
+        const base64Data = img.url.split(',')[1];
+        zip.file(`${prefix}${index + 1}.png`, base64Data, { base64: true });
+      }
     });
 
     try {
@@ -88,9 +93,11 @@ export function Gallery() {
 
   const handleRegenerateAll = async () => {
     if (isGenerating) return;
+    requestNotificationPermission();
     toast.info('Regenerating all images...');
     await regenerateAllImages(generatedImages, referenceImages);
     toast.success('Regeneration complete!');
+    showDesktopNotification('Regeneration Complete', 'All images have finished regenerating.');
   };
 
   return (

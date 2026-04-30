@@ -5,6 +5,7 @@ import { UploadCloud, X, Image as ImageIcon, Wand2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner';
 import { generateImages } from '../services/geminiService';
 import { motion, AnimatePresence } from 'framer-motion';
+import { showDesktopNotification, requestNotificationPermission } from '../lib/utils';
 
 export function UploadSection() {
   const {
@@ -15,8 +16,12 @@ export function UploadSection() {
     isGenerating,
     setIsGenerating,
     setGeneratedImages,
-    clearAll,
+    clearGeneratedImages,
     generatedImages,
+    openRouterApiKey,
+    setOpenRouterApiKey,
+    geminiApiKey,
+    setGeminiApiKey,
   } = useStore();
 
   const onDrop = useCallback(
@@ -41,14 +46,10 @@ export function UploadSection() {
     },
     maxSize: 10 * 1024 * 1024, // 10MB
     disabled: isGenerating || referenceImages.length >= 5,
-  });
+  } as any);
 
   const handleGenerate = async () => {
-    if (referenceImages.length === 0) {
-      toast.error('Please upload at least one reference image.');
-      return;
-    }
-
+    requestNotificationPermission();
     setIsGenerating(true);
     toast.info('Starting generation process...');
 
@@ -56,12 +57,12 @@ export function UploadSection() {
       const { generatedImages } = useStore.getState();
       
       const updatedImages = generatedImages.map((img, i) => {
-        const refImage = referenceImages[i % referenceImages.length];
+        const refImage = referenceImages.length > 0 ? referenceImages[i % referenceImages.length] : null;
         return {
           ...img,
           status: 'loading' as const,
           errorMessage: undefined,
-          refImageId: refImage.id,
+          refImageId: refImage ? refImage.id : '',
           // Keep user's custom prompt if they typed one, otherwise it will be generated
         };
       });
@@ -71,10 +72,12 @@ export function UploadSection() {
       // Call the service to handle the generation
       await generateImages(updatedImages, referenceImages);
       toast.success('Generation complete!');
+      showDesktopNotification('Generation Complete', 'Your images have finished generating.');
     } catch (error: unknown) {
       console.error(error);
       const msg = error instanceof Error ? error.message : 'Unknown error occurred';
       toast.error(`Generation failed: ${msg}`);
+      showDesktopNotification('Generation Failed', `Error: ${msg}`);
     } finally {
       setIsGenerating(false);
     }
@@ -82,6 +85,36 @@ export function UploadSection() {
 
   return (
     <section className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 flex flex-col gap-3">
+          <div>
+            <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">OpenRouter API Key (Optional)</h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Provide an OpenRouter API key to use it for image generation. If empty, defaults to Gemini.</p>
+          </div>
+          <input
+            type="password"
+            value={openRouterApiKey}
+            onChange={(e) => setOpenRouterApiKey(e.target.value)}
+            placeholder="sk-or-v1-..."
+            className="w-full text-sm bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 focus:ring-2 focus:ring-yellow-400 focus:border-transparent outline-none transition-all"
+          />
+        </div>
+
+        <div className="bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 flex flex-col gap-3">
+          <div>
+            <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Google Gemini API Key (Optional)</h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Provide your own Google API key to override the default system key.</p>
+          </div>
+          <input
+            type="password"
+            value={geminiApiKey}
+            onChange={(e) => setGeminiApiKey(e.target.value)}
+            placeholder="AIzaSy..."
+            className="w-full text-sm bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 focus:ring-2 focus:ring-yellow-400 focus:border-transparent outline-none transition-all"
+          />
+        </div>
+      </div>
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
@@ -101,6 +134,8 @@ export function UploadSection() {
         className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200 cursor-pointer ${
           isDragActive
             ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-400/10'
+            : referenceImages.length === 0
+            ? 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)] dark:shadow-[0_0_15px_rgba(239,68,68,0.15)] bg-red-50/50 dark:bg-red-500/5 hover:bg-red-50 dark:hover:bg-red-500/10'
             : 'border-zinc-300 dark:border-zinc-700 hover:border-yellow-400 dark:hover:border-yellow-500 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
         } ${
           isGenerating || referenceImages.length >= 5
@@ -170,18 +205,18 @@ export function UploadSection() {
       <div className="flex justify-end gap-3 pt-4 border-t border-zinc-200 dark:border-zinc-800">
         <button
           onClick={() => {
-            clearAll();
-            toast.success('Cleared all prompts and generated images.');
+            clearGeneratedImages();
+            toast.success('Cleared generated images and prompts.');
           }}
           disabled={isGenerating}
           className="flex items-center gap-2 px-6 py-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-900 dark:text-zinc-100 font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
         >
           <Trash2 className="w-5 h-5" />
-          Clear All
+          Clear Generated
         </button>
         <button
           onClick={handleGenerate}
-          disabled={isGenerating || referenceImages.length === 0 || generatedImages.length === 0}
+          disabled={isGenerating || generatedImages.length === 0}
           className="flex items-center gap-2 px-6 py-3 bg-yellow-400 hover:bg-yellow-500 text-zinc-900 font-semibold rounded-xl shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
         >
           {isGenerating ? (

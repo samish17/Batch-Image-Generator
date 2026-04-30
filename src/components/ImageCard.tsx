@@ -5,6 +5,7 @@ import { saveAs } from 'file-saver';
 import { toast } from 'sonner';
 import { regenerateSingleImage } from '../services/geminiService';
 import { motion } from 'framer-motion';
+import { showDesktopNotification, requestNotificationPermission } from '../lib/utils';
 
 interface ImageCardProps {
   image: GeneratedImage;
@@ -34,9 +35,11 @@ export function ImageCard({ image, index, onClick }: ImageCardProps) {
   const handleRegenerate = async (e: MouseEvent) => {
     e.stopPropagation();
     if (isGenerating) return;
+    requestNotificationPermission();
     toast.info(`Regenerating image ${index + 1}...`);
     await regenerateSingleImage(image, referenceImages);
     toast.success(`Regenerated image ${index + 1}!`);
+    showDesktopNotification('Regeneration Complete', `Image ${index + 1} has finished regenerating.`);
   };
 
   return (

@@ -3,10 +3,18 @@ import JSZip from 'jszip';
 import { useStore, GeneratedImage, ReferenceImage } from '../store/useStore';
 import { fileToBase64 } from '../lib/utils';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+function getAiClient() {
+  const { geminiApiKey } = useStore.getState();
+  const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('Google Gemini API key is required. Please provide it in the settings or environment.');
+  }
+  return new GoogleGenAI({ apiKey });
+}
 
 export async function generatePromptVariations(basePrompt: string, count: number): Promise<string[]> {
   try {
+    const ai = getAiClient();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Generate ${count} distinct, highly creative, and detailed image generation prompts based on this base idea: "${basePrompt}". Make them descriptive and varied in style.`,
@@ -34,38 +42,95 @@ export async function generatePromptVariations(basePrompt: string, count: number
 
 export async function generateSingleImage(
   prompt: string,
-  referenceImage: ReferenceImage
+  referenceImage?: ReferenceImage
 ): Promise<string> {
-  const base64Data = await fileToBase64(referenceImage.file);
-  const mimeType = referenceImage.file.type;
+  const { openRouterApiKey } = useStore.getState();
 
+  if (openRouterApiKey) {
+    return generateImageWithOpenRouter(prompt, openRouterApiKey, referenceImage);
+  }
+
+  const parts: any[] = [];
+
+  if (referenceImage) {
+    const base64Data = await fileToBase64(referenceImage.file);
+    const mimeType = referenceImage.file.type;
+    parts.push({
+      inlineData: {
+        data: base64Data,
+        mimeType: mimeType,
+      },
+    });
+  }
+
+  parts.push({ text: prompt });
+
+  const ai = getAiClient();
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: {
-      parts: [
-        {
-          inlineData: {
-            data: base64Data,
-            mimeType: mimeType,
-          },
-        },
-        {
-          text: prompt,
-        },
-      ],
+      parts: parts,
     },
   });
 
-  const parts = response.candidates?.[0]?.content?.parts;
-  if (!parts) throw new Error('No parts returned from Gemini');
+  const responseParts = response.candidates?.[0]?.content?.parts;
+  if (!responseParts) throw new Error('No parts returned from Gemini');
 
-  for (const part of parts) {
+  for (const part of responseParts) {
     if (part.inlineData) {
       return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
     }
   }
 
   throw new Error('No image data found in response');
+}
+
+async function generateImageWithOpenRouter(prompt: string, apiKey: string, referenceImage?: ReferenceImage): Promise<string> {
+  const content: any[] = [{ type: 'text', text: prompt }];
+
+  if (referenceImage) {
+    const base64Data = await fileToBase64(referenceImage.file);
+    content.push({
+      type: 'image_url',
+      image_url: {
+        url: `data:${referenceImage.file.type};base64,${base64Data}`
+      }
+    });
+  }
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': window.location.href,
+      'X-Title': 'AI Studio App',
+    },
+    body: JSON.stringify({
+      model: 'google/gemini-2.5-flash-image',
+      messages: [
+        {
+          role: 'user',
+          content: content
+        }
+      ],
+      modalities: ['image', 'text']
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || 'Failed to generate image with OpenRouter');
+  }
+
+  const data = await response.json();
+  const message = data.choices?.[0]?.message;
+  
+  if (message?.images && message.images.length > 0) {
+    return message.images[0].image_url.url;
+  }
+
+  throw new Error('OpenRouter did not return a valid image');
 }
 
 export async function generateImages(
@@ -86,13 +151,18 @@ export async function generateImages(
     }
   }
 
+  const noRefImagesCount = initialImages.filter(img => !img.refImageId && !img.prompt.trim()).length;
+  if (noRefImagesCount > 0) {
+    promptsByRefId['no-ref'] = await generatePromptVariations('A beautiful, creative, and highly detailed image', noRefImagesCount);
+  }
+
   // Assign prompts to initial images
   const imagesWithPrompts = initialImages.map(img => {
     if (img.prompt.trim()) {
       return img; // Keep custom prompt
     }
-    const prompts = promptsByRefId[img.refImageId];
-    const prompt = prompts?.shift() || 'A creative variation of this image';
+    const prompts = img.refImageId ? promptsByRefId[img.refImageId] : promptsByRefId['no-ref'];
+    const prompt = prompts?.shift() || 'A beautiful creative image';
     return { ...img, prompt };
   });
 
@@ -101,42 +171,26 @@ export async function generateImages(
     updateGeneratedImage(img.id, { prompt: img.prompt });
   });
 
-  // Generate images in parallel with a concurrency limit to avoid rate limits
-  const concurrencyLimit = 3;
-  let activeCount = 0;
-  let index = 0;
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-  return new Promise<void>((resolve) => {
-    const next = async () => {
-      if (index >= imagesWithPrompts.length && activeCount === 0) {
-        resolve();
-        return;
-      }
+  for (let i = 0; i < imagesWithPrompts.length; i++) {
+    const img = imagesWithPrompts[i];
+    const refImg = referenceImages.find(r => r.id === img.refImageId);
 
-      while (activeCount < concurrencyLimit && index < imagesWithPrompts.length) {
-        const img = imagesWithPrompts[index];
-        const refImg = referenceImages.find(r => r.id === img.refImageId)!;
-        index++;
-        activeCount++;
+    try {
+      const url = await generateSingleImage(img.prompt, refImg);
+      updateGeneratedImage(img.id, { url, status: 'success' });
+    } catch (err: unknown) {
+      console.error(`Failed to generate image ${img.id}:`, err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      updateGeneratedImage(img.id, { status: 'error', errorMessage });
+    }
 
-        generateSingleImage(img.prompt, refImg)
-          .then(url => {
-            updateGeneratedImage(img.id, { url, status: 'success' });
-          })
-          .catch((err: unknown) => {
-            console.error(`Failed to generate image ${img.id}:`, err);
-            const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
-            updateGeneratedImage(img.id, { status: 'error', errorMessage });
-          })
-          .finally(() => {
-            activeCount--;
-            next();
-          });
-      }
-    };
-
-    next();
-  });
+    // Add a 3-second delay before the next generation (except for the last one)
+    if (i < imagesWithPrompts.length - 1) {
+      await delay(3000);
+    }
+  }
 }
 
 export async function regenerateSingleImage(
@@ -145,12 +199,11 @@ export async function regenerateSingleImage(
 ) {
   const { updateGeneratedImage } = useStore.getState();
   const refImg = referenceImages.find(r => r.id === image.refImageId);
-  if (!refImg) return;
 
   updateGeneratedImage(image.id, { status: 'loading', errorMessage: undefined });
 
   try {
-    const basePrompt = refImg.prompt || 'A creative variation of this image';
+    const basePrompt = refImg?.prompt || 'A creative variation of this image';
     const [newPrompt] = await generatePromptVariations(basePrompt, 1);
     
     updateGeneratedImage(image.id, { prompt: newPrompt });
@@ -226,6 +279,7 @@ export async function extractPromptsFromFile(file: File): Promise<string[]> {
     });
   }
 
+  const ai = getAiClient();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: contents[0],

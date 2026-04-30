@@ -32,7 +32,12 @@ interface AppState {
   setBatchIdentifier: (id: string) => void;
   toggleTheme: () => void;
   clearAll: () => void;
+  clearGeneratedImages: () => void;
   addEmptyGeneratedImages: (count: number) => void;
+  openRouterApiKey: string;
+  setOpenRouterApiKey: (key: string) => void;
+  geminiApiKey: string;
+  setGeminiApiKey: (key: string) => void;
 }
 
 const getInitialGeneratedImages = (length: number = 3): GeneratedImage[] => Array.from({ length }).map(() => ({
@@ -50,6 +55,10 @@ export const useStore = create<AppState>((set) => ({
   isGenerating: false,
   theme: 'dark',
   batchIdentifier: '',
+  openRouterApiKey: '',
+  geminiApiKey: '',
+  setOpenRouterApiKey: (key) => set({ openRouterApiKey: key }),
+  setGeminiApiKey: (key) => set({ geminiApiKey: key }),
   setBatchIdentifier: (id) => set({ batchIdentifier: id }),
   addReferenceImages: (files) =>
     set((state) => {
@@ -98,6 +107,11 @@ export const useStore = create<AppState>((set) => ({
   clearAll: () =>
     set({
       referenceImages: [],
+      generatedImages: getInitialGeneratedImages(3),
+      batchIdentifier: '',
+    }),
+  clearGeneratedImages: () =>
+    set({
       generatedImages: getInitialGeneratedImages(3),
       batchIdentifier: '',
     }),
